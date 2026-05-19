@@ -51,6 +51,34 @@
                 });
             }
         });
+
+        // COMPONENTE PARA AJUSTAR EL PLANO AL TAMAÑO REAL DEL TARGET
+        AFRAME.registerComponent('match-target-ratio', {
+            init: function () {
+                const sceneEl = this.el.sceneEl;
+                
+                sceneEl.addEventListener("arReady", () => {
+                    // Obtenemos el sistema de MindAR para leer las dimensiones reales del target detectado
+                    const mindarSystem = sceneEl.systems["mindar-image-system"];
+                    const targetIndex = this.el.parentElement.getAttribute("mindar-image-target").targetIndex || 0;
+                    
+                    // MindAR guarda internamente las dimensiones de las imágenes cargadas
+                    const imageTarget = mindarSystem.mindarImageData.imageTargets[targetIndex];
+                    
+                    if (imageTarget) {
+                        const width = imageTarget.width;
+                        const height = imageTarget.height;
+                        
+                        // Calculamos la relación de aspecto (alto / ancho)
+                        const aspectRatio = height / width;
+                        
+                        // Como en MindAR el ancho base de la entidad siempre es 1, escalamos la altura proporcionalmente
+                        this.el.setAttribute('width', '1');
+                        this.el.setAttribute('height', aspectRatio);
+                    }
+                });
+            }
+        });
     </script>
 
     <a-scene 
@@ -67,7 +95,8 @@
         <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
 
         <a-entity id="paint-target" mindar-image-target="targetIndex: 0">
-            <a-plane width="1" height="1" position="0 0 0" chromakey="color: #12e310"></a-plane>
+            <!-- Agregamos el componente match-target-ratio aquí -->
+            <a-plane position="0 0 0" chromakey="color: #12e310" match-target-ratio></a-plane>
         </a-entity>
     </a-scene>
 
@@ -77,7 +106,6 @@
         const sceneEl = document.querySelector('a-scene');
 
         btn.addEventListener('click', () => {
-            // Iniciamos el sistema con parámetros de resolución manual para buscar más nitidez
             sceneEl.systems["mindar-image-system"].start();
             video.play();
             btn.style.display = 'none';
