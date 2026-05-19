@@ -1,0 +1,17 @@
+{
+  "name": "mundo3d",
+  "version": "1.0.0",
+  "description": "![Build](https://github.com/zappar-xr/zappar-threejs/workflows/Build/badge.svg)",
+  "main": "main.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@zappar/zappar-threejs": "^4.3.0",
+    "three": "^0.183.0"
+  }
+}

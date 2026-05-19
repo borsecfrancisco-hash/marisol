@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.2/dist/mindar-image-aframe.prod.js"></script>
+    <style>
+        body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; }
+        #btn-start { 
+            position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%); 
+            z-index: 1000; padding: 15px 35px; background: #2196F3; color: white; 
+            border: none; border-radius: 50px; font-weight: bold; cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+
+    <button id="btn-start">INICIAR EXPERIENCIA</button>
+
+    <script>
+        // SHADER CHROMA KEY PARA ELIMINAR EL VERDE
+        AFRAME.registerComponent('chromakey', {
+            schema: { color: { type: 'color', default: '#12e310' } },
+            init: function () {
+                const videoElement = document.querySelector('#arVideo');
+                const texture = new THREE.VideoTexture(videoElement);
+                this.el.getObject3D('mesh').material = new THREE.ShaderMaterial({
+                    uniforms: {
+                        u_texture: { value: texture },
+                        u_color: { value: new THREE.Color(this.data.color) }
+                    },
+                    vertexShader: `
+                        varying vec2 vUv;
+                        void main() {
+                            vUv = uv;
+                            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                        }
+                    `,
+                    fragmentShader: `
+                        varying vec2 vUv;
+                        uniform sampler2D u_texture;
+                        uniform vec3 u_color;
+                        void main() {
+                            vec4 texColor = texture2D(u_texture, vUv);
+                            float dist = distance(texColor.rgb, u_color);
+                            if (dist < 0.5) { discard; }
+                            gl_FragColor = texColor;
+                        }
+                    `,
+                    transparent: true
+                });
+            }
+        });
+    </script>
+
+    <a-scene 
+        mindar-image="imageTargetSrc: ./targets.mind; autoStart: false; uiLoading: no; uiScanning: no; filterMinCF:0.0001; filterBeta: 0.001;" 
+        color-space="sRGB" 
+        renderer="colorManagement: true, physicallyCorrectLights" 
+        vr-mode-ui="enabled: false" 
+        device-orientation-permission-ui="enabled: false">
+        
+        <a-assets>
+            <video id="arVideo" src="video.mp4" loop="true" crossorigin="anonymous" playsinline></video>
+        </a-assets>
+
+        <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
+
+        <a-entity id="paint-target" mindar-image-target="targetIndex: 0">
+            <a-plane width="1" height="1" position="0 0 0" chromakey="color: #12e310"></a-plane>
+        </a-entity>
+    </a-scene>
+
+    <script>
+        const btn = document.getElementById('btn-start');
+        const video = document.getElementById('arVideo');
+        const sceneEl = document.querySelector('a-scene');
+
+        btn.addEventListener('click', () => {
+            // Iniciamos el sistema con parámetros de resolución manual para buscar más nitidez
+            sceneEl.systems["mindar-image-system"].start();
+            video.play();
+            btn.style.display = 'none';
+        });
+
+        const targetEl = document.getElementById('paint-target');
+        targetEl.addEventListener("targetFound", () => { video.play(); });
+        targetEl.addEventListener("targetLost", () => { video.pause(); });
+    </script>
+</body>
+</html>
