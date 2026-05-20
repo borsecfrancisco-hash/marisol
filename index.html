@@ -18,21 +18,18 @@
     <button id="btn-start">INICIAR EXPERIENCIA</button>
 
     <script>
-        // SHADER CHROMA KEY CON COMPROBACIÓN DE TEXTURA SEGURA
+        // SHADER CHROMA KEY (Tu componente original que ya funcionaba)
         AFRAME.registerComponent('chromakey', {
             schema: { color: { type: 'color', default: '#12e310' } },
             init: function () {
                 const videoElement = document.querySelector('#arVideo');
-                
-                // Forzar la creación de la textura con filtros básicos para evitar errores de buffer
-                this.texture = new THREE.VideoTexture(videoElement);
-                this.texture.minFilter = THREE.LinearFilter;
-                this.texture.magFilter = THREE.LinearFilter;
-                this.texture.format = THREE.RGBAFormat;
+                const texture = new THREE.VideoTexture(videoElement);
+                texture.minFilter = THREE.LinearFilter;
+                texture.magFilter = THREE.LinearFilter;
 
                 this.el.getObject3D('mesh').material = new THREE.ShaderMaterial({
                     uniforms: {
-                        u_texture: { value: this.texture },
+                        u_texture: { value: texture },
                         u_color: { value: new THREE.Color(this.data.color) }
                     },
                     vertexShader: `
@@ -50,16 +47,10 @@
                     `,
                     transparent: true
                 });
-            },
-            tick: function () {
-                // Forzar la actualización continua de la textura de video en cada frame
-                if (this.texture) {
-                    this.texture.needsUpdate = true;
-                }
             }
         });
 
-        // CONTROL DE GESTOS DIRECTO Y ESTABLE
+        // CONTROL DE GESTOS MULTITOUCH PARA EL MODELO
         AFRAME.registerComponent('ar-gestures', {
             init: function () {
                 this.touchStartDist = 0;
@@ -122,9 +113,7 @@
         });
     </script>
 
-    <!--
-      Filtros optimizados de Mind-AR para anclarse rígidamente a la imagen sin oscilaciones
-    -->
+    <!-- Filtros nativos de Mind-AR para mantener la estabilidad dentro del recuadro -->
     <a-scene 
         mindar-image="imageTargetSrc: ./targets.mind; autoStart: false; uiLoading: no; uiScanning: no; filterMinCF: 0.0001; filterBeta: 1000;" 
         color-space="sRGB" 
@@ -133,8 +122,7 @@
         device-orientation-permission-ui="enabled: false">
         
         <a-assets>
-            <!-- Eliminamos la carga inline agresiva dejando que el navegador prepare los punteros -->
-            <video id="arVideo" src="video.mp4" loop="true" crossorigin="anonymous" playsinline muted></video>
+            <video id="arVideo" src="video.mp4" loop="true" crossorigin="anonymous" playsinline></video>
             <a-asset-item id="politanoModel" src="./politano.glb"></a-asset-item>
         </a-assets>
 
@@ -143,8 +131,10 @@
         <a-entity light="type: ambient; intensity: 2.5;"></a-entity>
         <a-entity light="type: directional; intensity: 1.8;" position="2 4 3"></a-entity>
 
+        <!-- Ambos objetos se quedan fijos en el contenedor del marcador físico -->
         <a-entity id="paint-target" mindar-image-target="targetIndex: 0">
-            <!-- El plano con el shader chroma key -->
+            
+            <!-- El plano con el tamaño corregido matemáticamente -->
             <a-plane id="video-plane" position="0 0 0" chromakey="color: #12e310"></a-plane>
             
             <a-entity 
@@ -164,53 +154,29 @@
         const sceneEl = document.querySelector('a-scene');
         const videoPlane = document.getElementById('video-plane');
 
+        // CORRECCIÓN MATEMÁTICA DEL ASPECT RATIO
         function ajustarAspectRatio() {
             if (video.videoWidth > 0 && video.videoHeight > 0) {
-                const aspectRatio = video.videoWidth / video.videoHeight;
-                if (aspectRatio >= 1) {
-                    videoPlane.setAttribute('width', '1');
-                    videoPlane.setAttribute('height', (1 / aspectRatio).toString());
-                } else {
-                    videoPlane.setAttribute('width', aspectRatio.toString());
-                    videoPlane.setAttribute('height', '1');
-                }
-                console.log("Aspect ratio del plano configurado.");
+                const videoAspect = video.videoWidth / video.videoHeight;
+                
+                // Forzamos a que el ancho ocupe el recuadro completo del target (1)
+                // y la altura se adapte proporcionalmente sin encoger el plano
+                videoPlane.setAttribute('width', '1');
+                videoPlane.setAttribute('height', (1 / videoAspect).toString());
+                
+                console.log(`Plano adaptado a la superficie. Escala: 1x${1 / videoAspect}`);
             }
         }
 
-        // Asegurar que las dimensiones cambien en cuanto el video tenga metadata
         video.addEventListener('loadedmetadata', ajustarAspectRatio);
+        if (video.readyState >= 1) { ajustarAspectRatio(); }
 
         btn.addEventListener('click', () => {
-            btn.innerText = "CARGANDO VIDEO...";
-            btn.style.background = "#FFC107";
-            
-            // PASO 1: Arrancar la reproducción del video de forma aislada
-            video.play().then(() => {
-                // Desmutear tras superar la barrera de interacción del navegador si es necesario
-                video.muted = false; 
-                ajustarAspectRatio();
-
-                // PASO 2: Solo cuando el video está corriendo de verdad, encendemos Mind-AR
-                console.log("Video listo y reproduciéndose. Inicializando Mind-AR de forma segura.");
-                
-                // Pequeño retardo de seguridad (100ms) para que la GPU registre el frame inicial
-                setTimeout(() => {
-                    sceneEl.systems["mindar-image-system"].start();
-                    btn.style.display = 'none';
-                }, 100);
-
-            }).catch((err) => {
-                console.error("Error crítico al reproducir el video original:", err);
-                // Si el navegador bloquea el audio, reintentamos inmediatamente en modo muted estricto
-                video.muted = true;
-                video.play();
-                sceneEl.systems["mindar-image-system"].start();
-                btn.style.display = 'none';
-            });
+            sceneEl.systems["mindar-image-system"].start();
+            video.play();
+            btn.style.display = 'none';
         });
 
-        // Manejo básico de eventos secundarios una vez la cámara está activa
         const targetEl = document.getElementById('paint-target');
         targetEl.addEventListener("targetFound", () => { video.play(); });
         targetEl.addEventListener("targetLost", () => { video.pause(); });
