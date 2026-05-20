@@ -1,11 +1,11 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.2/dist/mindar-image-aframe.prod.js"></script>
     <style>
-        body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; user-select: none; }
+        body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; }
         #btn-start { 
             position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%); 
             z-index: 1000; padding: 15px 35px; background: #2196F3; color: white; 
@@ -24,9 +24,6 @@
             init: function () {
                 const videoElement = document.querySelector('#arVideo');
                 const texture = new THREE.VideoTexture(videoElement);
-                texture.minFilter = THREE.LinearFilter;
-                texture.magFilter = THREE.LinearFilter;
-
                 this.el.getObject3D('mesh').material = new THREE.ShaderMaterial({
                     uniforms: {
                         u_texture: { value: texture },
@@ -34,10 +31,15 @@
                     },
                     vertexShader: `
                         varying vec2 vUv;
-                        void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }
+                        void main() {
+                            vUv = uv;
+                            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                        }
                     `,
                     fragmentShader: `
-                        varying vec2 vUv; uniform sampler2D u_texture; uniform vec3 u_color;
+                        varying vec2 vUv;
+                        uniform sampler2D u_texture;
+                        uniform vec3 u_color;
                         void main() {
                             vec4 texColor = texture2D(u_texture, vUv);
                             float dist = distance(texColor.rgb, u_color);
@@ -50,107 +52,31 @@
             }
         });
 
-        // COMPONENTE QUE GESTIONA LA PERSISTENCIA Y LOS GESTOS MULTITOUCH
-        AFRAME.registerComponent('ar-persistence-gestures', {
+        // COMPONENTE PARA AJUSTAR EL PLANO AL TAMAÑO REAL DEL TARGET
+        AFRAME.registerComponent('match-target-ratio', {
             init: function () {
-                this.touchStartDist = 0;
-                this.initialScale = new THREE.Vector3();
-                this.previousTouchPosition = { x: 0, y: 0 };
-                this.isPersistent = false;
-                this.modelMesh = null;
-
-                this.el.addEventListener('model-loaded', (e) => {
-                    this.modelMesh = e.detail.model;
-                    this.modelMesh.traverse((node) => {
-                        if (node.isMesh) {
-                            node.material.depthWrite = true;
-                            node.material.depthTest = true;
-                        }
-                    });
-                });
-
-                const tracker = document.getElementById('paint-target');
-                
-                tracker.addEventListener('targetFound', () => {
-                    if (!this.isPersistent && this.modelMesh) {
-                        const sceneEl = this.el.sceneEl.object3D;
-                        
-                        const worldPosition = new THREE.Vector3();
-                        const worldQuaternion = new THREE.Quaternion();
-                        const worldScale = new THREE.Vector3();
-                        
-                        tracker.object3D.updateMatrixWorld(true);
-                        tracker.object3D.matrixWorld.decompose(worldPosition, worldQuaternion, worldScale);
-
-                        sceneEl.add(this.el.object3D);
-
-                        this.el.object3D.position.copy(worldPosition);
-                        this.el.object3D.quaternion.copy(worldQuaternion);
-                        this.el.object3D.position.z += 0.05; 
-
-                        this.isPersistent = true;
-                    }
-                });
-
-                this.setupTouchControls();
-            },
-
-            setupTouchControls: function () {
                 const sceneEl = this.el.sceneEl;
-
-                sceneEl.addEventListener('touchstart', (e) => {
-                    if (!this.isPersistent || !this.modelMesh) return;
-                    if (e.touches.length === 1 || e.touches.length === 3) {
-                        this.previousTouchPosition = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-                    } else if (e.touches.length === 2) {
-                        this.touchStartDist = this.getTouchDistance(e.touches);
-                        this.initialScale.copy(this.el.object3D.scale);
+                
+                sceneEl.addEventListener("arReady", () => {
+                    // Obtenemos el sistema de MindAR para leer las dimensiones reales del target detectado
+                    const mindarSystem = sceneEl.systems["mindar-image-system"];
+                    const targetIndex = this.el.parentElement.getAttribute("mindar-image-target").targetIndex || 0;
+                    
+                    // MindAR guarda internamente las dimensiones de las imágenes cargadas
+                    const imageTarget = mindarSystem.mindarImageData.imageTargets[targetIndex];
+                    
+                    if (imageTarget) {
+                        const width = imageTarget.width;
+                        const height = imageTarget.height;
+                        
+                        // Calculamos la relación de aspecto (alto / ancho)
+                        const aspectRatio = height / width;
+                        
+                        // Como en MindAR el ancho base de la entidad siempre es 1, escalamos la altura proporcionalmente
+                        this.el.setAttribute('width', '1');
+                        this.el.setAttribute('height', aspectRatio);
                     }
                 });
-
-                sceneEl.addEventListener('touchmove', (e) => {
-                    if (!this.isPersistent || !this.modelMesh) return;
-
-                    const deltaX = e.touches[0].clientX - this.previousTouchPosition.x;
-                    const deltaY = e.touches[0].clientY - this.previousTouchPosition.y;
-
-                    if (e.touches.length === 1) {
-                        const sensibilidadRotacion = 0.007;
-                        this.el.object3D.rotation.y += deltaX * sensibilidadRotacion;
-                        this.el.object3D.rotation.x += deltaY * sensibilidadRotacion;
-
-                    } else if (e.touches.length === 2) {
-                        const currentDist = this.getTouchDistance(e.touches);
-                        if (this.touchStartDist > 0) {
-                            const factorEscala = currentDist / this.touchStartDist;
-                            this.el.object3D.scale.set(
-                                this.initialScale.x * factorEscala,
-                                this.initialScale.y * factorEscala,
-                                this.initialScale.z * factorEscala
-                            );
-                        }
-
-                    } else if (e.touches.length === 3) {
-                        const sensibilidadMovimiento = 0.005;
-                        this.el.object3D.position.x += deltaX * sensibilidadMovimiento;
-                        this.el.object3D.position.y -= deltaY * sensibilidadMovimiento;
-                    }
-
-                    this.previousTouchPosition = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-                });
-
-                sceneEl.addEventListener('touchend', (e) => {
-                    if (e.touches.length < 2) this.touchStartDist = 0;
-                    if (e.touches.length > 0) {
-                        this.previousTouchPosition = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-                    }
-                });
-            },
-
-            getTouchDistance: function (touches) {
-                const dx = touches[0].clientX - touches[1].clientX;
-                const dy = touches[0].clientY - touches[1].clientY;
-                return Math.sqrt(dx * dx + dy * dy);
             }
         });
     </script>
@@ -158,61 +84,26 @@
     <a-scene 
         mindar-image="imageTargetSrc: ./targets.mind; autoStart: false; uiLoading: no; uiScanning: no; filterMinCF:0.0001; filterBeta: 0.001;" 
         color-space="sRGB" 
-        renderer="colorManagement: true, physicallyCorrectLights: true, antialias: true, sortObjects: true" 
+        renderer="colorManagement: true, physicallyCorrectLights" 
         vr-mode-ui="enabled: false" 
         device-orientation-permission-ui="enabled: false">
         
         <a-assets>
             <video id="arVideo" src="video.mp4" loop="true" crossorigin="anonymous" playsinline></video>
-            <a-asset-item id="politanoModel" src="./politano.glb"></a-asset-item>
         </a-assets>
 
         <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
 
-        <a-entity light="type: ambient; intensity: 2.5;"></a-entity>
-        <a-entity light="type: directional; intensity: 1.8;" position="2 4 3"></a-entity>
-        <a-entity light="type: directional; intensity: 1.0;" position="-2 -4 -3"></a-entity>
-
-        <!-- CONTENEDOR DEL TARGET -->
         <a-entity id="paint-target" mindar-image-target="targetIndex: 0">
-            <!-- El plano inicia en 1x1 y se redimensiona matemáticamente al vuelo -->
-            <a-plane id="video-plane" position="0 0 0" chromakey="color: #12e310"></a-plane>
-            
-            <a-entity 
-                id="render-glb"
-                gltf-model="#politanoModel"
-                ar-persistence-gestures
-                position="0 0 0.02"
-                scale="1 1 1">
-            </a-entity>
+            <!-- Agregamos el componente match-target-ratio aquí -->
+            <a-plane position="0 0 0" chromakey="color: #12e310" match-target-ratio></a-plane>
         </a-entity>
-
     </a-scene>
 
     <script>
         const btn = document.getElementById('btn-start');
         const video = document.getElementById('arVideo');
         const sceneEl = document.querySelector('a-scene');
-        const videoPlane = document.getElementById('video-plane');
-
-        function ajustarAspectRatio() {
-            if (video.videoWidth > 0 && video.videoHeight > 0) {
-                const aspectRatio = video.videoWidth / video.videoHeight;
-                
-                // Mantiene el aspecto nativo exacto escalando sobre la unidad base tridimensional
-                if (aspectRatio >= 1) {
-                    videoPlane.setAttribute('width', '1');
-                    videoPlane.setAttribute('height', (1 / aspectRatio).toString());
-                } else {
-                    videoPlane.setAttribute('width', aspectRatio.toString());
-                    videoPlane.setAttribute('height', '1');
-                }
-                console.log(`Dimensión del plano ajustada a la resolución del video: ${video.videoWidth}x${video.videoHeight}`);
-            }
-        }
-
-        video.addEventListener('loadedmetadata', ajustarAspectRatio);
-        if (video.readyState >= 1) { ajustarAspectRatio(); }
 
         btn.addEventListener('click', () => {
             sceneEl.systems["mindar-image-system"].start();
